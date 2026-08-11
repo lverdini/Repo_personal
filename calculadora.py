@@ -7,3 +7,6 @@ resta = numero1 - numero2
 print ("la resta es: ", resta)
 
 print ("la suma es: ", suma)
+
+multiplicacion = numero1 * numero2
+print ("la multiplicacion es: ", multiplicacion)
