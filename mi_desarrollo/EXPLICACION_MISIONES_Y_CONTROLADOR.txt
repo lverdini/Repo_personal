@@ -1,0 +1,353 @@
+TP02 - EXPLICACION DEL CONTROLADOR Y LAS MISIONES
+=================================================
+
+El programa muestra un menu interactivo. Se ejecuta una accion o la mision que
+elijas; luego vuelve a mostrar el menu. Las misiones no empiezan solas.
+
+ANTES DE EJECUTAR: INICIAR EL SIMULADOR
+---------------------------------------
+En Windows:
+
+1. Abri PowerShell en la carpeta principal del proyecto, donde estan
+    INICIAR_SIMULADOR.bat y Readme.md.
+2. Ejecuta:
+
+         .\INICIAR_SIMULADOR.bat
+
+3. Cuando pregunte que robot queres usar, escribe 1 y presiona Enter para
+    elegir G1. El G1 es el humanoide que puede dar la mano.
+4. Espera a que aparezca la ventana 3D y a que la terminal indique que esta
+    escuchando en 127.0.0.1:8765. No cierres esa terminal ni el simulador.
+
+Si es la primera vez que preparas el proyecto, primero crea el entorno virtual
+con `python -m venv .venv` y, con el entorno activado, instala MuJoCo con
+`pip install mujoco`. Para validar la instalacion puedes ejecutar
+`py -3 -m entorno.sim --solo-revisar` desde la carpeta principal.
+
+INICIAR EL CONTROLADOR
+----------------------
+Con el simulador abierto, abre otra terminal en la carpeta principal. Ejecuta
+el archivo del controlador explicitamente:
+
+         py -3 .\mi_desarrollo\mi_tp02.py
+
+Tambien puedes usar el lanzador incluido, indicando que archivo ejecutar:
+
+         .\EJECUTAR_MI_CODIGO.bat mi_desarrollo\mi_tp02.py
+
+El menu permite ejecutar una accion por numero o elegir una mision completa.
+Al elegir una accion individual, el menu vuelve a aparecer. Al terminar una
+mision tambien vuelve a aparecer, para que puedas elegir otra o salir. La opcion
+0 cierra el controlador; antes de desconectarse, intenta detener el robot. Para
+apagar el simulador, presiona Ctrl+C en la terminal donde esta corriendo.
+
+OPCIONES DEL MENU
+-----------------
+1: avanzar 0.4 m (0.2 m/s durante 2 s).
+2: girar 90 grados a la izquierda (0.5 rad/s durante 3.14 s).
+3: girar 90 grados a la derecha (-0.5 rad/s durante 3.14 s).
+4: dar la mano. Esta opcion corresponde al G1; el Go2 no tiene manos.
+5: detenerse.
+6: ejecutar la mision basica completa.
+7: ejecutar la mision del cuadrado completa.
+8: ejecutar la mision con errores completa.
+9: ejecutar la mision larga completa.
+10: abrir el constructor de una mision temporal.
+0: salir y detener/desconectar el robot.
+
+Las opciones 1 a 5 ejecutan una sola accion. Las opciones 6 a 9 ejecutan todos
+los pasos de la mision elegida, pero no ejecutan las otras misiones. La opcion
+10 permite armar una secuencia propia en una lista temporal de la memoria del
+programa. No se crea ni se modifica ningun archivo. Al cancelar o ejecutar la
+secuencia, se sale del constructor y esa lista deja de existir.
+
+Dentro del constructor:
+
+1 a 5: agregar un movimiento a la lista.
+6: ver la secuencia en el orden en que se ejecutara.
+7: quitar el ultimo movimiento agregado.
+8: ejecutar la secuencia completa y volver al menu principal.
+0: cancelar y descartar la secuencia sin ejecutarla.
+
+1. FORMATO DE UN COMANDO
+------------------------
+Cada mision es una lista de tuplas. Cada tupla representa una orden para el
+robot. El primer elemento indica la accion:
+
+    ("avanzar", velocidad, tiempo)
+    ("girar", velocidad, tiempo)
+    ("detenerse",)
+    ("saludar",)
+    ("dar_la_mano",)
+
+En avanzar, la velocidad se mide en metros por segundo (m/s), y el tiempo en
+segundos. La distancia teorica es velocidad por tiempo. Por ejemplo:
+
+    ("avanzar", 0.2, 2.0)
+
+significa avanzar a 0.2 m/s durante 2 segundos: 0.4 metros.
+
+En girar, la velocidad se mide en radianes por segundo (rad/s). Una velocidad
+positiva hace girar a la izquierda y una negativa, a la derecha. El angulo
+teorico se obtiene multiplicando velocidad por tiempo:
+
+    ("girar", -0.5, 3.14)
+
+produce aproximadamente -1.57 radianes, es decir, un cuarto de vuelta hacia
+la derecha (90 grados).
+
+"detenerse", "saludar" y "dar_la_mano" no llevan argumentos adicionales.
+La coma de ("detenerse",) indica que es una tupla de un solo elemento.
+
+2. QUE HACE mi_tp02.py
+----------------------
+El controlador se ocupa de revisar cada comando, ejecutarlo cuando
+corresponde y explicar el resultado.
+
+2.1 Importaciones
+-----------------
+El programa importa:
+
+    import math
+    from robot import ErrorDeSeguridad, Robot
+    from misiones import MISIONES
+
+math permite comprobar que las velocidades y los tiempos sean numeros finitos.
+Robot es la interfaz que comunica el programa con el simulador. MISIONES es un
+diccionario con las cuatro misiones. ErrorDeSeguridad es la excepcion que usa
+la API cuando una orden supera los limites del perfil de seguridad.
+
+2.2 Validacion de comandos
+--------------------------
+La funcion comando_es_valido(comando) devuelve True si la estructura del
+comando es correcta y False si no lo es.
+
+La funcion auxiliar _motivo_comando_invalido(comando) realiza las comprobaciones
+y devuelve el motivo del rechazo. Comprueba que:
+
+- El comando sea una tupla no vacia.
+- El nombre sea una orden reconocida: avanzar, girar, detenerse, saludar o
+    dar_la_mano.
+- La cantidad de elementos sea correcta. Avanzar y girar necesitan nombre,
+    velocidad y tiempo. Detenerse, saludar y dar_la_mano solo necesitan el nombre.
+- Velocidad y tiempo sean numeros, no texto ni valores booleanos.
+- Los numeros sean finitos; NaN e infinito no son valores aceptables.
+- El tiempo no sea negativo.
+
+La validacion de estructura evita, por ejemplo, intentar ejecutar
+("volar", 0.2, 1.0), usar texto en vez de una velocidad, o dejar afuera el
+tiempo de una orden.
+
+2.3 Ejecucion de un comando
+---------------------------
+La funcion ejecutar_comando(robot, comando) convierte cada tupla en una
+llamada a la API del robot:
+
+    ("avanzar", v, t)   -> robot.avanzar(velocidad=v, tiempo=t)
+    ("girar", v, t)     -> robot.girar(velocidad=v, tiempo=t)
+    ("detenerse",)      -> robot.detenerse()
+    ("saludar",)        -> robot.saludar()
+    ("dar_la_mano",)    -> robot.dar_la_mano()
+
+Si la llamada termina, devuelve un texto indicando que se hizo. Una tupla
+puede tener la estructura correcta y aun asi ser rechazada por seguridad. En
+ese caso, la API lanza ErrorDeSeguridad y el controlador registra el motivo.
+
+Para TP02, el perfil del simulador informa limites de 0.20 m/s para avanzar,
+0.50 rad/s para girar y 10 segundos por orden. La API del robot es quien hace
+cumplir esos limites. Por eso los valores 0.9 m/s, 3.0 rad/s o 50 segundos no
+se deben ejecutar.
+
+2.4 Recorrido de una mision
+---------------------------
+La funcion ejecutar_mision(robot, mision, historial) recorre los comandos en
+orden. Para cada uno:
+
+1. Comprueba primero si su estructura es valida.
+2. Si la estructura es invalida, lo marca como rechazado sin llamar al robot.
+3. Si es valida, intenta ejecutarlo.
+4. Si la API informa un ErrorDeSeguridad, lo marca como rechazado y guarda el
+   mensaje. Si el robot no admite una accion, tambien registra el rechazo.
+5. Guarda en historial el comando, su estado y el detalle del resultado.
+6. Imprime el resultado y continua con el siguiente comando.
+
+Esto permite que una orden incorrecta no corte el resto de la mision.
+
+2.5 Reporte
+-----------
+La funcion generar_reporte(historial) cuenta cuantos comandos quedaron como
+"ejecutado" y cuantos como "rechazado". Tambien imprime el comando y el motivo
+de cada rechazo.
+
+2.6 Programa principal y cierre
+-------------------------------
+La funcion main() crea un Robot y se conecta al simulador. Luego recorre cada
+par nombre/mision del diccionario MISIONES, crea un historial nuevo para esa
+mision, la ejecuta e imprime su reporte.
+
+Al terminar, incluso si ocurre un error durante una mision, el bloque finally
+intenta detener el robot y desconectarlo. Esto evita dejar una orden de
+movimiento activa al finalizar el programa.
+
+2.7 EXPLICACION DE CADA FUNCION DEL CONTROLADOR
+------------------------------------------------
+
+comando_es_valido(comando)
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+Recibe una tupla, por ejemplo ("avanzar", 0.2, 2.0). Devuelve True si pasa las
+comprobaciones de estructura y False si no. No mueve el robot. Delega la
+busqueda del error a _motivo_comando_invalido.
+
+_motivo_comando_invalido(comando)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Es una funcion auxiliar que devuelve None cuando el comando esta bien formado,
+o un texto que explica por que esta mal. Primero confirma que sea una tupla no
+vacia; despues reconoce el nombre y verifica la cantidad de elementos. Para
+avanzar y girar, revisa que velocidad y tiempo sean numeros finitos y que el
+tiempo no sea negativo. No comprueba los limites maximos de velocidad y tiempo:
+esos los aplica la API del robot y los captura ejecutar_mision.
+
+ejecutar_comando(robot, comando)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Recibe el objeto Robot conectado y una tupla valida. Segun el nombre, llama a
+robot.avanzar, robot.girar, robot.detenerse, robot.saludar o
+robot.dar_la_mano. Devuelve una descripcion del resultado. Esta funcion no
+recorre la mision completa ni construye el reporte.
+
+ejecutar_mision(robot, mision, historial)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Recibe el robot, una lista de tuplas y una lista donde guardar resultados.
+Recorre cada comando en orden. Si la estructura no es valida, lo rechaza sin
+mandarlo al robot. Si es valida, llama a ejecutar_comando. Captura
+ErrorDeSeguridad (por ejemplo, una velocidad por encima del limite) y
+NotImplementedError (accion no disponible para ese modelo). En ambos casos
+registra el motivo y pasa al comando siguiente.
+
+Por cada orden agrega a historial un diccionario con tres datos:
+
+    {
+        "comando": comando original,
+        "estado": "ejecutado" o "rechazado",
+        "detalle": explicacion del resultado
+    }
+
+Tambien imprime cada resultado en la terminal.
+
+generar_reporte(historial)
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+Cuenta los registros con estado "ejecutado" y "rechazado" e imprime ambos
+totales. Luego recorre el historial para mostrar el comando y el motivo de cada
+rechazo. Solo informa resultados; no controla ni mueve el robot.
+
+main()
+~~~~~~
+Es el punto de entrada del programa. Crea Robot y se conecta una vez. Despues
+repite el menu hasta que se elige 0. El bloque finally intenta detener el robot
+y despues desconectarlo, incluso si ocurre una excepcion o se interrumpe el
+programa.
+
+mostrar_menu()
+~~~~~~~~~~~~~~
+Imprime las opciones numeradas en la terminal, incluida la opcion 10 para abrir
+el constructor. No recibe datos, no pide la tecla y no mueve el robot.
+
+construir_mision(robot)
+~~~~~~~~~~~~~~~~~~~~~~~
+Crea una lista local llamada mision_temporal y muestra un menu para agregar
+avances, giros, dar la mano o detenerse. Cada movimiento se agrega al final de
+la lista, en el orden elegido. Tambien permite mostrar la lista y quitar el
+ultimo paso. Si se elige ejecutar, pasa la lista a ejecutar_mision y muestra el
+reporte. Si se cancela, la descarta. La lista solo vive en la memoria mientras
+esta abierta esta funcion: no se guarda en un archivo ni queda disponible al
+reiniciar el programa.
+
+ejecutar_opcion(robot, opcion)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Recibe el Robot conectado y el texto ingresado por el usuario. Para las opciones
+1 a 5 construye y ejecuta una sola orden. Para las opciones 6 a 9 busca la
+mision correspondiente en MISIONES, la ejecuta completa y muestra su reporte.
+La opcion 10 abre construir_mision. Si la opcion no existe, muestra un aviso y
+no manda ninguna orden. Tambien informa errores de seguridad o gestos no
+disponibles.
+
+if __name__ == "__main__"
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+Esta condicion llama a main() solo cuando mi_tp02.py se ejecuta directamente.
+Si otro archivo importa el modulo para probar sus funciones, las misiones no
+empiezan automaticamente.
+
+3. EXPLICACION DE LAS MISIONES
+------------------------------
+
+MISION 1: BASICA
+----------------
+Secuencia:
+
+    ("avanzar", 0.2, 2.0)  -> avanza 0.4 m
+    ("girar", -0.5, 3.14)  -> gira unos 90 grados a la derecha
+    ("avanzar", 0.2, 2.0)  -> avanza otros 0.4 m
+    ("detenerse",)         -> frena
+
+Es una prueba corta de avance, giro, segundo avance y detencion. Sus cuatro
+comandos tienen estructura valida y respetan los limites de TP02.
+
+MISION 2: CUADRADO
+------------------
+La mision repite cuatro veces esta pareja de acciones:
+
+    avanzar 0.4 m
+    girar 90 grados a la derecha
+
+Al final ejecuta detenerse. Tiene nueve comandos: cuatro avances, cuatro giros
+y una detencion. La idea es que cada avance sea un lado y cada giro una
+esquina. En un modelo ideal, el robot terminaria cerca del punto de partida;
+en la simulacion puede haber diferencias por el comportamiento fisico y el
+control del robot.
+
+MISION 3: CON ERRORES
+---------------------
+Esta mision sirve para probar la validacion. Tiene once comandos en total:
+
+1. Avanzar a 0.2 m/s durante 2 s: valido.
+2. Girar a -0.5 rad/s durante 3.14 s: valido.
+3. Avanzar a 0.9 m/s: se rechaza porque supera 0.20 m/s.
+4. Avanzar durante 50 s: se rechaza porque supera 10 s por orden.
+5. Girar a 3.0 rad/s: se rechaza porque supera 0.50 rad/s.
+6. Comando "volar": se rechaza porque no existe.
+7. Velocidad "rapido": se rechaza porque no es un numero.
+8. Avanzar sin indicar tiempo: se rechaza porque falta un argumento.
+9. Tiempo -3 s: se rechaza porque el tiempo no puede ser negativo.
+10. Dar la mano: valido para el G1.
+11. Detenerse: valido.
+
+El resultado esperado con el perfil TP02 es cuatro comandos ejecutados y siete
+rechazados. Los comandos rechazados no deben llamar a una accion de movimiento
+invalida; la mision debe continuar hasta dar la mano y detenerse.
+
+MISION 4: LARGA
+----------------
+Combina avances, giros hacia ambos lados, el gesto de dar la mano y una detencion. Los
+movimientos son:
+
+- Avanzar 0.15 m/s durante 2 s: 0.30 m.
+- Girar a la izquierda a 0.5 rad/s durante 1.57 s: aproximadamente 90 grados.
+- Avanzar otros 0.30 m.
+- Girar a la derecha a -0.5 rad/s durante 1.57 s: aproximadamente 45 grados.
+- Dar la mano: el G1 extiende el brazo y hace un pequeno movimiento de apreton.
+- Avanzar 0.2 m/s durante 2 s: 0.40 m.
+- Girar a la izquierda a 0.5 rad/s durante 6.28 s: aproximadamente 3.14
+  radianes, o media vuelta.
+- Avanzar otros 0.40 m.
+- Detenerse.
+
+Tiene nueve comandos. Todos respetan los limites declarados para TP02. El
+gesto de dar la mano puede tardar unos segundos, porque la API espera a que
+termine el movimiento.
+
+4. COMO EJECUTARLO
+------------------
+Segui primero los pasos de "ANTES DE EJECUTAR: INICIAR EL SIMULADOR" y luego
+los de "INICIAR EL CONTROLADOR" al comienzo de este documento. Asegurate de
+usar G1 y de mantener abierta la terminal del simulador mientras corre el
+controlador. En la terminal del controlador, escribe el numero de la accion o
+mision deseada y presiona Enter. Para terminar, escribe 0.
